@@ -1,0 +1,15 @@
+{
+  "collection": "@nestjs/schematics",
+  "sourceRoot": "src",
+  "compilerOptions": {
+    "webpack": true,
+    "webpackConfigPath": "webpack.config.js",
+    "tsConfigPath": "tsconfig.build.json",
+    "assets": [
+      {
+        "include": "src/modules/email/templates/**/*",
+        "outDir": "dist/modules/email/templates"
+      }
+    ]
+  }
+}

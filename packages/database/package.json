@@ -1,0 +1,38 @@
+{
+  "name": "@textile/database",
+  "version": "1.0.0",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": "./dist/index.js",
+    "./database.module": "./dist/database.module.js",
+    "./prisma.service": "./dist/prisma.service.js"
+  },
+  "scripts": {
+    "clean": "rm -rf dist",
+    "build": "nest build",
+    "dev": "nest build --watch",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate:dev": "prisma migrate dev"
+  },
+  "dependencies": {
+    "@nestjs/common": "^10.4.20",
+    "@nestjs/core": "^10.4.20",
+    "@prisma/client": "^5.22.0",
+    "reflect-metadata": "^0.1.14",
+    "rxjs": "^7.8.2"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^11.0.14",
+    "@nestjs/schematics": "^10.0.3",
+    "prisma": "^5.22.0",
+    "ts-loader": "^9.5.4",
+    "typescript": "^5.6.2",
+    "webpack": "^5.103.0",
+    "webpack-cli": "5.1.4",
+    "webpack-node-externals": "^3.0.0"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "exclude": ["node_modules", "dist", "test"],
+  "compilerOptions": {
+    "composite": false,
+    "tsBuildInfoFile": "./dist/.tsbuildinfo",
+    "incremental": true,
+    "declaration": true,
+    "declarationMap": true,
+    "removeComments": false
+  }
+}

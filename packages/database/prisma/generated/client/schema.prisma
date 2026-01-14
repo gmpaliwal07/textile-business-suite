@@ -1,0 +1,1240 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "./generated/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// ENUMS
+// ============================================
+
+enum UserRole {
+  owner
+  manager
+  staff
+  accountant
+}
+
+enum InvoiceType {
+  sale
+  purchase
+  sale_return
+  purchase_return
+}
+
+enum PaymentMode {
+  cash
+  bank
+  cheque
+  upi
+  card
+  credit
+}
+
+enum PaymentType {
+  received
+  paid
+}
+
+enum SyncStatus {
+  pending
+  synced
+  conflict
+  failed
+}
+
+enum PartyType {
+  customer
+  supplier
+  both
+}
+
+enum SubscriptionStatus {
+  trial
+  active
+  expired
+  cancelled
+}
+
+enum Language {
+  en
+  hi
+  gu
+}
+
+enum SubscriptionPlanType {
+  trial
+  basic_6month
+  basic_yearly
+  pro_6month
+  pro_yearly
+  enterprise_6month
+  enterprise_yearly
+}
+
+enum AddonType {
+  whatsapp
+  sms
+  einvoice
+  eway_bill
+  custom_reports
+  extra_storage
+}
+
+enum BillingPeriod {
+  monthly
+  six_month
+  yearly
+}
+
+enum TransactionStatus {
+  pending
+  processing
+  completed
+  failed
+  refunded
+}
+
+enum TransactionType {
+  subscription_purchase
+  subscription_renewal
+  addon_purchase
+  addon_renewal
+  refund
+}
+
+enum VoucherType {
+  sales
+  purchase
+  receipt
+  payment
+  journal
+  contra
+  debit_note
+  credit_note
+}
+
+enum GroupType {
+  capital_account
+  current_assets
+  current_liabilities
+  fixed_assets
+  investments
+  loans_liability
+  loans_asset
+  sales_accounts
+  purchase_accounts
+  direct_expenses
+  indirect_expenses
+  direct_incomes
+  indirect_incomes
+  drawing_account
+}
+
+enum AffectsType {
+  balance_sheet
+  profit_loss
+}
+
+enum LedgerType {
+  party_receivable
+  party_payable
+  cash
+  bank
+  sales
+  sales_return
+  purchase
+  purchase_return
+  expense
+  income
+  gst_input
+  gst_output
+  asset
+  liability
+  capital
+  round_off
+}
+
+enum ExpenseCategory {
+  rent
+  salary
+  electricity
+  water
+  telephone
+  internet
+  transport
+  courier
+  stationery
+  printing
+  repairs_maintenance
+  insurance
+  legal_professional
+  bank_charges
+  interest
+  advertisement
+  commission
+  brokerage
+  travelling
+  entertainment
+  depreciation
+  misc
+}
+
+enum ExpenseFrequency {
+  one_time
+  daily
+  weekly
+  monthly
+  quarterly
+  half_yearly
+  yearly
+}
+
+// ============================================
+// MODELS
+// ============================================
+
+model LedgerGroup {
+  id             String @id @default(uuid())
+  organizationId String @map("organization_id")
+
+  groupName   String    @map("group_name")
+  groupCode   String?   @map("group_code")
+  groupType   GroupType @map("group_type")
+  description String?
+
+  parentGroupId String? @map("parent_group_id")
+  level         Int     @default(1)
+
+  affects AffectsType
+
+  isActive  Boolean   @default(true) @map("is_active")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  parentGroup    LedgerGroup?  @relation("GroupHierarchy", fields: [parentGroupId], references: [id])
+  childGroups    LedgerGroup[] @relation("GroupHierarchy")
+  ledgers        Ledger[]
+  isSystemLedger Boolean       @default(false) @map("is_system_ledger")
+
+  @@unique([organizationId, groupName])
+  @@index([organizationId])
+  @@index([parentGroupId])
+  @@map("ledger_groups")
+}
+
+model Ledger {
+  id             String @id @default(uuid())
+  organizationId String @map("organization_id")
+
+  // Identity
+  ledgerName String     @map("ledger_name")
+  ledgerCode String?    @map("ledger_code")
+  ledgerType LedgerType @map("ledger_type")
+
+  // Classification
+  ledgerGroupId String @map("ledger_group_id")
+
+  // Opening Balance
+  openingBalance Decimal  @default(0) @map("opening_balance") @db.Decimal(15, 2)
+  openingDate    DateTime @map("opening_date") @db.Date
+
+  // Current Balance (auto-calculated from entries)
+  currentBalance Decimal @default(0) @map("current_balance") @db.Decimal(15, 2)
+
+  // For Party Ledgers
+  partyId String? @unique @map("party_id") // ✅ ADD @unique here
+
+  // For Bank Ledgers
+  bankName      String? @map("bank_name")
+  accountNumber String? @map("account_number")
+  ifscCode      String? @map("ifsc_code")
+  branchName    String? @map("branch_name")
+
+  // For GST Ledgers
+  taxType String?  @map("tax_type")
+  taxRate Decimal? @map("tax_rate") @db.Decimal(5, 2)
+
+  // Control
+  isActive       Boolean @default(true) @map("is_active")
+  isSystemLedger Boolean @default(false) @map("is_system_ledger")
+
+  // Metadata
+  description String?   @db.Text
+  createdBy   String?   @map("created_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  // Relations
+  organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  ledgerGroup       LedgerGroup        @relation(fields: [ledgerGroupId], references: [id])
+  party             Party?             @relation()
+  entries           VoucherEntry[]
+  expenses          Expense[]
+  recurringExpenses RecurringExpense[]
+  otherIncomes      OtherIncome[]
+
+  @@unique([organizationId, ledgerName])
+  @@index([organizationId])
+  @@index([ledgerType])
+  @@index([partyId])
+  @@index([ledgerGroupId])
+  @@map("ledgers")
+}
+
+model Expense {
+  id             String @id @default(uuid())
+  organizationId String @map("organization_id")
+
+  // Expense Details
+  expenseNumber   String          @map("expense_number")
+  expenseDate     DateTime        @map("expense_date") @db.Date
+  expenseCategory ExpenseCategory @map("expense_category")
+
+  // Ledger Link
+  ledgerId   String @map("ledger_id")
+  ledgerName String @map("ledger_name")
+
+  // Amount
+  amount Decimal @db.Decimal(15, 2)
+
+  // Payment Details
+  paymentMode PaymentMode @map("payment_mode")
+  paidFrom    String?     @map("paid_from") // Cash/Bank ledger ID
+
+  // Reference
+  billNumber String? @map("bill_number")
+  vendorName String? @map("vendor_name")
+  vendorId   String? @map("vendor_id") // Party ID if applicable
+
+  // Voucher Link
+  voucherId String? @unique @map("voucher_id")
+
+  // Additional Info
+  description   String? @db.Text
+  attachmentUrl String? @map("attachment_url")
+
+  // Status
+  isRecurring Boolean @default(false) @map("is_recurring")
+  recurringId String? @map("recurring_id")
+
+  // Metadata
+  createdBy String?   @map("created_by")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  // Relations
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  ledger       Ledger            @relation(fields: [ledgerId], references: [id])
+  vendor       Party?            @relation("ExpenseVendor", fields: [vendorId], references: [id])
+  voucher      Voucher?          @relation(fields: [voucherId], references: [id])
+  recurring    RecurringExpense? @relation(fields: [recurringId], references: [id])
+
+  @@unique([organizationId, expenseNumber])
+  @@index([organizationId])
+  @@index([expenseDate])
+  @@index([expenseCategory])
+  @@index([ledgerId])
+  @@map("expenses")
+}
+
+model RecurringExpense {
+  id             String @id @default(uuid())
+  organizationId String @map("organization_id")
+
+  // Details
+  expenseCategory ExpenseCategory @map("expense_category")
+  ledgerId        String          @map("ledger_id")
+  amount          Decimal         @db.Decimal(15, 2)
+
+  // Recurrence
+  frequency   ExpenseFrequency
+  startDate   DateTime         @map("start_date") @db.Date
+  endDate     DateTime?        @map("end_date") @db.Date
+  nextDueDate DateTime         @map("next_due_date") @db.Date
+
+  // Payment
+  paymentMode PaymentMode @map("payment_mode")
+  paidFrom    String?     @map("paid_from")
+
+  // Control
+  isActive     Boolean @default(true) @map("is_active")
+  autoGenerate Boolean @default(true) @map("auto_generate")
+
+  // Additional
+  description String? @db.Text
+  vendorName  String? @map("vendor_name")
+
+  // Metadata
+  createdBy String?   @map("created_by")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  ledger       Ledger       @relation(fields: [ledgerId], references: [id])
+  expenses     Expense[]
+
+  @@index([organizationId])
+  @@index([nextDueDate])
+  @@index([isActive])
+  @@map("recurring_expenses")
+}
+
+model Voucher {
+  id             String @id @default(uuid())
+  organizationId String @map("organization_id")
+
+  // Voucher Identity
+  voucherType   VoucherType @map("voucher_type")
+  voucherNumber String      @map("voucher_number")
+  voucherDate   DateTime    @map("voucher_date") @db.Date
+
+  // Reference (optional - links to invoice, payment, etc.)
+  referenceType   String? @map("reference_type") // invoice, payment, manual, opening
+  referenceId     String? @map("reference_id")
+  referenceNumber String? @map("reference_number")
+
+  // Narration (description of transaction)
+  narration String @db.Text
+
+  // Amounts (must be equal for double entry)
+  totalDebit  Decimal @map("total_debit") @db.Decimal(15, 2)
+  totalCredit Decimal @map("total_credit") @db.Decimal(15, 2)
+
+  // Control
+  isPosted           Boolean   @default(true) @map("is_posted")
+  isCancelled        Boolean   @default(false) @map("is_cancelled")
+  cancelledAt        DateTime? @map("cancelled_at")
+  cancelledBy        String?   @map("cancelled_by")
+  cancellationReason String?   @map("cancellation_reason") @db.Text
+
+  // Metadata
+  createdBy String?   @map("created_by")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  editedBy  String?   @map("edited_by")
+  editedAt  DateTime? @map("edited_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  // Relations
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  entries      VoucherEntry[]
+  expense      Expense?
+  otherIncome  OtherIncome?
+
+  @@unique([organizationId, voucherType, voucherNumber])
+  @@index([organizationId])
+  @@index([voucherType])
+  @@index([voucherDate])
+  @@index([referenceType, referenceId])
+  @@map("vouchers")
+}
+
+model VoucherEntry {
+  id        String @id @default(uuid())
+  voucherId String @map("voucher_id")
+
+  // Ledger
+  ledgerId   String @map("ledger_id")
+  ledgerName String @map("ledger_name")
+
+  // Amount (either debit OR credit, never both)
+  debitAmount  Decimal @default(0) @map("debit_amount") @db.Decimal(15, 2)
+  creditAmount Decimal @default(0) @map("credit_amount") @db.Decimal(15, 2)
+
+  // GST Details (if applicable)
+  gstRate    Decimal? @map("gst_rate") @db.Decimal(5, 2)
+  cgstAmount Decimal? @map("cgst_amount") @db.Decimal(15, 2)
+  sgstAmount Decimal? @map("sgst_amount") @db.Decimal(15, 2)
+  igstAmount Decimal? @map("igst_amount") @db.Decimal(15, 2)
+  cessAmount Decimal? @map("cess_amount") @db.Decimal(15, 2)
+
+  // Additional Info
+  narration String? @db.Text
+
+  // Metadata
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  voucher Voucher @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+  ledger  Ledger  @relation(fields: [ledgerId], references: [id])
+
+  @@index([voucherId])
+  @@index([ledgerId])
+  @@map("voucher_entries")
+}
+
+model Organization {
+  id String @id @default(uuid())
+
+  // Basic Info
+  businessName String  @map("business_name")
+  legalName    String? @map("legal_name")
+  gstin        String? @unique
+  pan          String?
+
+  // Address
+  addressLine1 String  @map("address_line1")
+  addressLine2 String? @map("address_line2")
+  city         String
+  state        String
+  pincode      String
+  country      String  @default("India")
+
+  // Contact
+  phone   String
+  email   String?
+  website String?
+
+  // Business Settings
+  logoUrl            String?  @map("logo_url")
+  financialYearStart Int      @default(4) @map("financial_year_start")
+  currency           String   @default("INR")
+  timezone           String   @default("Asia/Kolkata")
+  defaultLanguage    Language @default(en) @map("default_language")
+
+  // Subscription
+  subscriptionPlan   String             @default("trial") @map("subscription_plan")
+  subscriptionStatus SubscriptionStatus @default(trial) @map("subscription_status")
+  trialEndsAt        DateTime?          @map("trial_ends_at")
+  subscriptionEndsAt DateTime?          @map("subscription_ends_at")
+
+  // Billing
+  invoicePrefix  String @default("INV") @map("invoice_prefix")
+  invoiceCounter Int    @default(1) @map("invoice_counter")
+
+  booksBeginningDate      DateTime? @map("books_beginning_date") @db.Date
+  currentFYStart          DateTime? @map("current_fy_start") @db.Date
+  currentFYEnd            DateTime? @map("current_fy_end") @db.Date
+  businessType            String?   @default("trader") @map("business_type") // trader, manufacturer, retailer
+  isMigrationMode         Boolean   @default(false) @map("is_migration_mode")
+  booksLockedBefore       DateTime? @map("books_locked_before") @db.Date
+  isChartSetup            Boolean   @default(false) @map("is_chart_setup")
+  isOpeningBalanceEntered Boolean   @default(false) @map("is_opening_balance_entered")
+  openingBalanceDiff      Decimal   @default(0) @map("opening_balance_diff") @db.Decimal(15, 2)
+
+  ledgerGroups LedgerGroup[]
+  ledgers      Ledger[]
+  vouchers     Voucher[]
+
+  // Metadata
+  isActive  Boolean   @default(true) @map("is_active")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  productBatches        ProductBatch[]
+  users                 User[]
+  parties               Party[]
+  products              Product[]
+  invoices              Invoice[]
+  payments              Payment[]
+  inventoryTransactions InventoryTransaction[]
+  syncLogs              SyncLog[]
+  auditLogs             AuditLog[]
+  settings              Settings?
+  expenses              Expense[]
+  recurringExpenses     RecurringExpense[]
+  stockValuations       StockValuation[]
+  otherIncomes          OtherIncome[]
+
+  @@map("organizations")
+}
+
+model User {
+  id             String @id @default(uuid())
+  organizationId String @map("organization_id")
+
+  // Personal Info
+  fullName String  @map("full_name")
+  email    String? @unique
+  phone    String  @unique
+
+  // Authentication
+  passwordHash  String? @map("password_hash")
+  phoneVerified Boolean @default(false) @map("phone_verified")
+  emailVerified Boolean @default(false) @map("email_verified")
+
+  // Role & Permissions
+  role        UserRole @default(staff)
+  permissions Json     @default("[]")
+
+  // Settings
+  language  Language @default(en)
+  avatarUrl String?  @map("avatar_url")
+
+  // Session
+  lastLoginAt DateTime? @map("last_login_at")
+  lastLoginIp String?   @map("last_login_ip")
+
+  // Metadata
+  isActive  Boolean   @default(true) @map("is_active")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([phone])
+  @@index([email])
+  @@index([role])
+  @@map("users")
+}
+
+model Party {
+  id             String @id @default(uuid())
+  organizationId String @map("organization_id")
+
+  // Basic Info
+  partyType     PartyType @map("party_type")
+  partyCode     String    @map("party_code")
+  businessName  String    @map("business_name")
+  contactPerson String?   @map("contact_person")
+
+  // Contact
+  phone          String
+  email          String?
+  whatsappNumber String? @map("whatsapp_number")
+
+  // Address
+  addressLine1 String? @map("address_line1")
+  addressLine2 String? @map("address_line2")
+  city         String?
+  state        String?
+  pincode      String?
+
+  // GST Info
+  gstin String?
+  pan   String?
+
+  // Financial
+  openingBalance Decimal @default(0) @map("opening_balance") @db.Decimal(15, 2)
+  creditLimit    Decimal @default(0) @map("credit_limit") @db.Decimal(15, 2)
+  creditDays     Int     @default(0) @map("credit_days")
+
+  // Ledger Link
+  ledgerId String? @unique @map("ledger_id") // ✅ ADD @unique here
+
+  // Metadata
+  notes      String?    @db.Text
+  tags       Json       @default("[]")
+  isActive   Boolean    @default(true) @map("is_active")
+  syncStatus SyncStatus @default(synced) @map("sync_status")
+  createdBy  String?    @map("created_by")
+  createdAt  DateTime   @default(now()) @map("created_at")
+  updatedAt  DateTime   @updatedAt @map("updated_at")
+  deletedAt  DateTime?  @map("deleted_at")
+
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invoices     Invoice[]
+  payments     Payment[]
+  ledger       Ledger?      @relation(fields: [ledgerId], references: [id]) // ✅ Keep this
+  expenses     Expense[]    @relation("ExpenseVendor")
+
+  @@index([organizationId])
+  @@index([partyType])
+  @@index([partyCode])
+  @@index([phone])
+  @@index([gstin])
+  @@index([syncStatus])
+  @@map("parties")
+}
+
+model ProductBatch {
+  id             String @id @default(uuid())
+  organizationId String @map("organization_id")
+  productId      String @map("product_id")
+
+  // Batch Info
+  batchNumber String  @map("batch_number")
+  lotNumber   String? @map("lot_number")
+
+  // Purchase Details
+  purchaseInvoiceId String?  @map("purchase_invoice_id")
+  purchaseDate      DateTime @map("purchase_date") @db.Date
+  purchasePrice     Decimal  @map("purchase_price") @db.Decimal(15, 2)
+
+  // Stock
+  openingStock Decimal @default(0) @map("opening_stock") @db.Decimal(15, 3)
+  currentStock Decimal @default(0) @map("current_stock") @db.Decimal(15, 3)
+
+  // Expiry (if applicable)
+  expiryDate DateTime? @map("expiry_date") @db.Date
+
+  // Godown/Location
+  godownLocation String? @map("godown_location")
+
+  // Textile Specific
+  thaan        String? // Thaan/Roll number
+  designNumber String? @map("design_number")
+  color        String?
+
+  // Metadata
+  notes     String?   @db.Text
+  isActive  Boolean   @default(true) @map("is_active")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  product      Product      @relation(fields: [productId], references: [id])
+
+  @@unique([organizationId, productId, batchNumber])
+  @@index([organizationId])
+  @@index([productId])
+  @@index([batchNumber])
+  @@index([purchaseDate])
+  @@map("product_batches")
+}
+
+model Product {
+  id             String @id @default(uuid())
+  organizationId String @map("organization_id")
+
+  // Basic Info
+  productCode String  @unique @map("product_code")
+  productName String  @map("product_name")
+  description String? @db.Text
+  category    String?
+  subcategory String?
+
+  // Images
+  primaryImageUrl String? @map("primary_image_url")
+  imageUrls       Json    @default("[]") @map("image_urls")
+
+  // Pricing
+  basePrice     Decimal  @map("base_price") @db.Decimal(15, 2)
+  salePrice     Decimal? @map("sale_price") @db.Decimal(15, 2)
+  purchasePrice Decimal? @map("purchase_price") @db.Decimal(15, 2)
+
+  // GST
+  hsnCode  String  @map("hsn_code")
+  gstRate  Decimal @default(5) @map("gst_rate") @db.Decimal(5, 2)
+  cessRate Decimal @default(0) @map("cess_rate") @db.Decimal(5, 2)
+
+  // Inventory
+  unit          String  @default("PCS")
+  currentStock  Decimal @default(0) @map("current_stock") @db.Decimal(15, 3)
+  minStockLevel Decimal @default(0) @map("min_stock_level") @db.Decimal(15, 3)
+
+  // Textile Specific
+  fabricType   String?  @map("fabric_type")
+  designNumber String?  @map("design_number")
+  color        String?
+  size         String?
+  weight       Decimal? @db.Decimal(10, 3)
+
+  // Barcode
+  barcode String? @unique
+
+  // Metadata
+  isActive   Boolean    @default(true) @map("is_active")
+  syncStatus SyncStatus @default(synced) @map("sync_status")
+  createdBy  String?    @map("created_by")
+  createdAt  DateTime   @default(now()) @map("created_at")
+  updatedAt  DateTime   @updatedAt @map("updated_at")
+  deletedAt  DateTime?  @map("deleted_at")
+
+  batches ProductBatch[]
+
+  // Relations
+  organization          Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invoiceItems          InvoiceItem[]
+  inventoryTransactions InventoryTransaction[]
+  stockValuations       StockValuation[]
+
+  @@index([organizationId])
+  @@index([productCode])
+  @@index([productName])
+  @@index([category])
+  @@index([hsnCode])
+  @@index([barcode])
+  @@index([syncStatus])
+  @@map("products")
+}
+
+model StockValuation {
+  id             String @id @default(uuid())
+  organizationId String @map("organization_id")
+  productId      String @map("product_id")
+
+  // Valuation Period
+  valuationDate DateTime @map("valuation_date") @db.Date
+  periodType    String   @map("period_type") // month_end, year_end, custom
+
+  // Stock Details
+  quantity     Decimal @db.Decimal(15, 3)
+  averagePrice Decimal @map("average_price") @db.Decimal(15, 2)
+  totalValue   Decimal @map("total_value") @db.Decimal(15, 2)
+
+  // Valuation Method
+  method String @default("FIFO") // FIFO, LIFO, WAC
+
+  // Metadata
+  createdBy String?  @map("created_by")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  product      Product      @relation(fields: [productId], references: [id])
+
+  @@unique([organizationId, productId, valuationDate, periodType])
+  @@index([organizationId])
+  @@index([valuationDate])
+  @@index([productId])
+  @@map("stock_valuations")
+}
+
+enum IncomeType {
+  interest_received
+  commission_received
+  discount_received
+  scrap_sale
+  asset_sale
+  rent_received
+  misc_income
+}
+
+model OtherIncome {
+  id             String @id @default(uuid())
+  organizationId String @map("organization_id")
+
+  // Income Details
+  incomeNumber String     @map("income_number")
+  incomeDate   DateTime   @map("income_date") @db.Date
+  incomeType   IncomeType @map("income_type")
+
+  // Ledger Link
+  ledgerId   String @map("ledger_id")
+  ledgerName String @map("ledger_name")
+
+  // Amount
+  amount Decimal @db.Decimal(15, 2)
+
+  // Receipt Details
+  receivedIn  String?      @map("received_in") // Cash/Bank ledger ID
+  receiptMode PaymentMode? @map("receipt_mode")
+
+  // Reference
+  referenceNumber String? @map("reference_number")
+  partyName       String? @map("party_name")
+
+  // Voucher Link
+  voucherId String? @unique @map("voucher_id")
+
+  // Additional Info
+  description String? @db.Text
+
+  // Metadata
+  createdBy String?   @map("created_by")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  ledger       Ledger       @relation(fields: [ledgerId], references: [id])
+  voucher      Voucher?     @relation(fields: [voucherId], references: [id])
+
+  @@unique([organizationId, incomeNumber])
+  @@index([organizationId])
+  @@index([incomeDate])
+  @@index([incomeType])
+  @@map("other_incomes")
+}
+
+model Invoice {
+  id             String @id @default(uuid())
+  organizationId String @map("organization_id")
+
+  // Invoice Info
+  invoiceType   InvoiceType @map("invoice_type")
+  invoiceNumber String      @map("invoice_number")
+  invoiceDate   DateTime    @map("invoice_date") @db.Date
+  dueDate       DateTime?   @map("due_date") @db.Date
+
+  // Party Info
+  partyId    String  @map("party_id")
+  partyName  String  @map("party_name")
+  partyGstin String? @map("party_gstin")
+  partyState String? @map("party_state")
+
+  deliveryAddressLine1 String? @map("delivery_address_line1")
+  deliveryAddressLine2 String? @map("delivery_address_line2")
+  deliveryCity         String? @map("delivery_city")
+  deliveryState        String? @map("delivery_state")
+  deliveryPincode      String? @map("delivery_pincode")
+
+  // Amounts
+  subtotal           Decimal @default(0) @db.Decimal(15, 2)
+  discountAmount     Decimal @default(0) @map("discount_amount") @db.Decimal(15, 2)
+  discountPercentage Decimal @default(0) @map("discount_percentage") @db.Decimal(5, 2)
+
+  // GST Breakup
+  cgstAmount Decimal @default(0) @map("cgst_amount") @db.Decimal(15, 2)
+  sgstAmount Decimal @default(0) @map("sgst_amount") @db.Decimal(15, 2)
+  igstAmount Decimal @default(0) @map("igst_amount") @db.Decimal(15, 2)
+  cessAmount Decimal @default(0) @map("cess_amount") @db.Decimal(15, 2)
+
+  // Other Charges
+  tcsAmount     Decimal @default(0) @map("tcs_amount") @db.Decimal(15, 2)
+  tcsPercentage Decimal @default(0) @map("tcs_percentage") @db.Decimal(5, 2)
+  roundOff      Decimal @default(0) @map("round_off") @db.Decimal(10, 2)
+
+  // Total
+  totalAmount   Decimal @map("total_amount") @db.Decimal(15, 2)
+  paidAmount    Decimal @default(0) @map("paid_amount") @db.Decimal(15, 2)
+  balanceAmount Decimal @default(0) @map("balance_amount") @db.Decimal(15, 2)
+
+  // E-Invoice (IRN)
+  isEinvoice     Boolean   @default(false) @map("is_einvoice")
+  irn            String?   @db.VarChar(64)
+  ackNumber      String?   @map("ack_number")
+  ackDate        DateTime? @map("ack_date")
+  irnGeneratedAt DateTime? @map("irn_generated_at")
+  qrCodeUrl      String?   @map("qr_code_url")
+
+  // E-Way Bill
+  ewayBillNumber       String?   @map("eway_bill_number") @db.VarChar(12)
+  ewayBillDate         DateTime? @map("eway_bill_date") @db.Date
+  ewayBillValidUntil   DateTime? @map("eway_bill_valid_until") @db.Date
+  vehicleNumber        String?   @map("vehicle_number")
+  transporterId        String?   @map("transporter_id")
+  distance             Int?
+  transportMode        String?   @map("transport_mode")
+  transporterDocNumber String?   @map("transporter_doc_number")
+  transporterDocDate   DateTime? @map("transporter_doc_date") @db.Date
+
+  // Additional Info
+  placeOfSupply      String? @map("place_of_supply")
+  reverseCharge      Boolean @default(false) @map("reverse_charge")
+  notes              String? @db.Text
+  termsAndConditions String? @map("terms_and_conditions") @db.Text
+
+  // Status
+  isCancelled        Boolean   @default(false) @map("is_cancelled")
+  cancelledAt        DateTime? @map("cancelled_at")
+  cancelledBy        String?   @map("cancelled_by")
+  cancellationReason String?   @map("cancellation_reason") @db.Text
+
+  // Metadata
+  syncStatus SyncStatus @default(synced) @map("sync_status")
+  pdfUrl     String?    @map("pdf_url")
+  createdBy  String?    @map("created_by")
+  createdAt  DateTime   @default(now()) @map("created_at")
+  updatedAt  DateTime   @updatedAt @map("updated_at")
+  deletedAt  DateTime?  @map("deleted_at")
+
+  // Relations
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  party        Party         @relation(fields: [partyId], references: [id])
+  items        InvoiceItem[]
+
+  paymentsAllocations PaymentAllocation[]
+  payments            Payment[]
+
+  @@unique([organizationId, invoiceNumber, invoiceType])
+  @@index([organizationId])
+  @@index([invoiceNumber])
+  @@index([invoiceDate])
+  @@index([partyId])
+  @@index([invoiceType])
+  @@index([irn])
+  @@index([ewayBillNumber])
+  @@index([syncStatus])
+  @@map("invoices")
+}
+
+model InvoiceItem {
+  id             String @id @default(uuid())
+  invoiceId      String @map("invoice_id")
+  organizationId String @map("organization_id")
+
+  // Product Info
+  productId   String? @map("product_id")
+  productName String  @map("product_name")
+  productCode String? @map("product_code")
+  hsnCode     String  @map("hsn_code")
+
+  // Quantity & Price
+  quantity Decimal @db.Decimal(15, 3)
+  unit     String
+  rate     Decimal @db.Decimal(15, 2)
+
+  // Discount
+  discountPercentage Decimal @default(0) @map("discount_percentage") @db.Decimal(5, 2)
+  discountAmount     Decimal @default(0) @map("discount_amount") @db.Decimal(15, 2)
+
+  // Taxable Amount
+  taxableAmount Decimal @map("taxable_amount") @db.Decimal(15, 2)
+
+  // GST
+  gstRate  Decimal @map("gst_rate") @db.Decimal(5, 2)
+  cgstRate Decimal @default(0) @map("cgst_rate") @db.Decimal(5, 2)
+  sgstRate Decimal @default(0) @map("sgst_rate") @db.Decimal(5, 2)
+  igstRate Decimal @default(0) @map("igst_rate") @db.Decimal(5, 2)
+  cessRate Decimal @default(0) @map("cess_rate") @db.Decimal(5, 2)
+
+  cgstAmount Decimal @default(0) @map("cgst_amount") @db.Decimal(15, 2)
+  sgstAmount Decimal @default(0) @map("sgst_amount") @db.Decimal(15, 2)
+  igstAmount Decimal @default(0) @map("igst_amount") @db.Decimal(15, 2)
+  cessAmount Decimal @default(0) @map("cess_amount") @db.Decimal(15, 2)
+
+  //COGS
+  costPrice    Decimal? @map("cost_price") @db.Decimal(15, 2) // Purchase price per unit
+  cogsAmount   Decimal? @map("cogs_amount") @db.Decimal(15, 2)
+  profitAmount Decimal? @map("profit_amount") @db.Decimal(15, 2) // Sale price - COGS
+  profitMargin Decimal? @map("profit_margin") @db.Decimal(5, 2) // (Profit / Sale) × 100
+
+  // Total
+  totalAmount Decimal @map("total_amount") @db.Decimal(15, 2)
+
+  // Metadata
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  invoice Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id])
+
+  @@index([invoiceId])
+  @@index([productId])
+  @@index([organizationId])
+  @@map("invoice_items")
+}
+
+model PaymentAllocation {
+  id        String @id @default(uuid())
+  paymentId String @map("payment_id")
+  invoiceId String @map("invoice_id")
+
+  // Allocation amount
+  amount Decimal @db.Decimal(15, 2)
+
+  // Metadata
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  invoice Invoice @relation(fields: [invoiceId], references: [id])
+
+  @@index([paymentId])
+  @@index([invoiceId])
+  @@map("payment_allocations")
+}
+
+model Payment {
+  id             String @id @default(uuid())
+  organizationId String @map("organization_id")
+
+  // Payment Info
+  paymentType PaymentType @map("payment_type")
+  paymentMode PaymentMode @map("payment_mode")
+  paymentDate DateTime    @map("payment_date") @db.Date
+
+  // Party
+  partyId   String @map("party_id")
+  partyName String @map("party_name")
+
+  // Amount
+  amount Decimal @db.Decimal(15, 2)
+
+  // Reference
+  referenceNumber String? @map("reference_number")
+  invoiceId       String? @map("invoice_id")
+
+  allocations  PaymentAllocation[]
+  // Bank Details
+  bankName     String?             @map("bank_name")
+  chequeNumber String?             @map("cheque_number")
+  chequeDate   DateTime?           @map("cheque_date") @db.Date
+  chequeStatus String?             @map("cheque_status")
+
+  // UPI/Card
+  upiTransactionId String? @map("upi_transaction_id")
+  cardLast4Digits  String? @map("card_last_4_digits") @db.VarChar(4)
+
+  // Metadata
+  notes      String?    @db.Text
+  receiptUrl String?    @map("receipt_url")
+  syncStatus SyncStatus @default(synced) @map("sync_status")
+  createdBy  String?    @map("created_by")
+  createdAt  DateTime   @default(now()) @map("created_at")
+  updatedAt  DateTime   @updatedAt @map("updated_at")
+  deletedAt  DateTime?  @map("deleted_at")
+
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  party        Party        @relation(fields: [partyId], references: [id])
+  invoice      Invoice?     @relation(fields: [invoiceId], references: [id])
+
+  @@index([organizationId])
+  @@index([partyId])
+  @@index([paymentDate])
+  @@index([paymentType])
+  @@index([invoiceId])
+  @@index([syncStatus])
+  @@map("payments")
+}
+
+model InventoryTransaction {
+  id             String @id @default(uuid())
+  organizationId String @map("organization_id")
+
+  // Product Info
+  productId String @map("product_id")
+
+  // Transaction
+  transactionType String  @map("transaction_type")
+  quantity        Decimal @db.Decimal(15, 3)
+  unit            String
+
+  // Reference
+  referenceType   String? @map("reference_type")
+  referenceId     String? @map("reference_id")
+  referenceNumber String? @map("reference_number")
+
+  // Stock
+  stockBefore Decimal @map("stock_before") @db.Decimal(15, 3)
+  stockAfter  Decimal @map("stock_after") @db.Decimal(15, 3)
+
+  // Metadata
+  transactionDate DateTime @map("transaction_date") @db.Date
+  notes           String?  @db.Text
+  createdBy       String?  @map("created_by")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  product      Product      @relation(fields: [productId], references: [id])
+
+  @@index([organizationId])
+  @@index([productId])
+  @@index([transactionDate])
+  @@index([transactionType])
+  @@map("inventory_transactions")
+}
+
+model SyncLog {
+  id             String  @id @default(uuid())
+  organizationId String  @map("organization_id")
+  userId         String? @map("user_id")
+
+  // Sync Info
+  entityType String @map("entity_type")
+  entityId   String @map("entity_id")
+  action     String
+
+  // Status
+  syncStatus   SyncStatus @map("sync_status")
+  errorMessage String?    @map("error_message") @db.Text
+  retryCount   Int        @default(0) @map("retry_count")
+
+  // Data
+  localData    Json? @map("local_data")
+  serverData   Json? @map("server_data")
+  conflictData Json? @map("conflict_data")
+
+  // Timestamps
+  createdAt   DateTime  @default(now()) @map("created_at")
+  syncedAt    DateTime? @map("synced_at")
+  nextRetryAt DateTime? @map("next_retry_at")
+
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([syncStatus])
+  @@index([entityType, entityId])
+  @@index([nextRetryAt])
+  @@map("sync_log")
+}
+
+model AuditLog {
+  id             String  @id @default(uuid())
+  organizationId String? @map("organization_id")
+
+  // User Info
+  userId   String?   @map("user_id")
+  userName String?   @map("user_name")
+  userRole UserRole? @map("user_role")
+
+  // Action Info
+  entityType String @map("entity_type")
+  entityId   String @map("entity_id")
+  action     String
+
+  // Data
+  oldData Json? @map("old_data")
+  newData Json? @map("new_data")
+  changes Json?
+
+  // Metadata
+  ipAddress String?  @map("ip_address")
+  userAgent String?  @map("user_agent") @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("audit_log")
+}
+
+model Settings {
+  id             String @id @default(uuid())
+  organizationId String @unique @map("organization_id")
+
+  // Invoice Settings
+  invoiceTerms      String? @map("invoice_terms") @db.Text
+  invoiceFooter     String? @map("invoice_footer") @db.Text
+  showLogoOnInvoice Boolean @default(true) @map("show_logo_on_invoice")
+  showSignature     Boolean @default(true) @map("show_signature")
+  signatureUrl      String? @map("signature_url")
+
+  // Print Settings
+  printSize String  @default("A4") @map("print_size")
+  autoPrint Boolean @default(false) @map("auto_print")
+
+  // Notification Settings
+  whatsappEnabled    Boolean @default(false) @map("whatsapp_enabled")
+  whatsappTemplateId String? @map("whatsapp_template_id")
+  smsEnabled         Boolean @default(true) @map("sms_enabled")
+  emailEnabled       Boolean @default(true) @map("email_enabled")
+
+  // GST Settings
+  enableEinvoice    Boolean @default(false) @map("enable_einvoice")
+  einvoiceUsername  String? @map("einvoice_username")
+  einvoicePassword  String? @map("einvoice_password")
+  gstPortalUsername String? @map("gst_portal_username")
+  gstPortalPassword String? @map("gst_portal_password")
+
+  // Other Settings
+  lowStockAlert       Boolean @default(true) @map("low_stock_alert")
+  paymentReminderDays Int     @default(7) @map("payment_reminder_days")
+
+  // Metadata
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("settings")
+}
